@@ -1,0 +1,43 @@
+[package]
+name = "rshole"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+gimli = { version = "0.27.0", default-features = false, features = ["read"] }
+memmap2 = { version = "0.5.5" }
+fallible-iterator = { version = "0.2", default-features = false, optional = true }
+object = { version = "0.30.0", default-features = false, features = ["read"], optional = true }
+smallvec = { version = "1", default-features = false, optional = true }
+rustc-demangle = { version = "0.1", optional = true }
+cpp_demangle = { version = "0.4", default-features = false, features = ["alloc"], optional = true }
+
+# Internal feature, only used when building as part of libstd, not part of the
+# stable interface of this crate.
+core = { version = '1.0.0', optional = true, package = 'rustc-std-workspace-core' }
+alloc = { version = '1.0.0', optional = true, package = 'rustc-std-workspace-alloc' }
+compiler_builtins = { version = '0.1.2', optional = true }
+
+log = { version = "0.4.17" }
+
+[dev-dependencies]
+clap = "3.1.6"
+backtrace = "0.3.13"
+findshlibs = "0.10"
+rustc-test = "0.3"
+typed-arena = "2"
+
+[features]
+default = ["rustc-demangle", "cpp_demangle", "std-object", "fallible-iterator", "smallvec"]
+std = ["gimli/std"]
+std-object = ["std", "object", "object/std", "object/compression", "gimli/endian-reader"]
+
+# Internal feature, only used when building as part of libstd, not part of the
+# stable interface of this crate.
+rustc-dep-of-std = ['core', 'alloc', 'compiler_builtins', 'gimli/rustc-dep-of-std']
+
+[[example]]
+name = "pahole"
+required-features = ["std-object"]
