@@ -39,5 +39,5 @@ std-object = ["std", "object", "object/std", "object/compression", "gimli/endian
 rustc-dep-of-std = ['core', 'alloc', 'compiler_builtins', 'gimli/rustc-dep-of-std']
 
 [[example]]
-name = "pahole"
+name = "rshole"
 required-features = ["std-object"]

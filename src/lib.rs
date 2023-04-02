@@ -159,7 +159,7 @@ impl StructMemberIter<'_> {
     pub fn get_member(&mut self, member_idx: usize) -> Result<Option<StructMember>, gimli::Error> {
         let mut iter = self.parser.sections.units().skip(self.mb_struct.meta.header_idx);
         while let Some(header) = iter.next()? {
-            let unit = self.parser.sections.unit(header.clone())?;
+            let unit = self.parser.sections.unit(header)?;
             let mut nested_entries = unit.entries_at_offset(self.mb_struct.meta.offset)?;
 
             // move iterator to member index
@@ -179,7 +179,7 @@ impl StructMemberIter<'_> {
     fn parse_member(&mut self, entry: &gimli::DebuggingInformationEntry<R>) -> Result<Option<StructMember>, gimli::Error> {
         let mut attrs = entry.attrs();
         let mut member = StructMember::new();
-        println!("    main tag: {}", entry.tag());
+        // println!("    main tag: {}", entry.tag());
         while let Some(attr) = attrs.next()? {
             match attr.name() {
                 gimli::DW_AT_type => {
@@ -211,15 +211,14 @@ pub struct Parser {
 }
 
 impl Parser {
-    pub fn new(path: String) -> Parser {
-        let sections = Self::load_sections(path);
+    pub fn new(file: File) -> Parser {
+        let sections = Self::load_sections(file);
         let struct_dict = HashMap::<String, Struct>::new();
         Parser { sections, struct_dict }
     }
 
-    fn load_sections(path: String) -> gimli::Dwarf<R> {
+    fn load_sections(file: File) -> gimli::Dwarf<R> {
         // src: https://github.com/tchajed/rdb/blob/main/src/dwarf.rs#L252
-        let file = File::open(&path).unwrap();
         let map = unsafe { Mmap::map(&file).unwrap() };
 
         let object = object::File::parse(&*map).unwrap();
@@ -241,7 +240,7 @@ impl Parser {
         let mut iter = self.sections.units();
         let mut header_idx = 0;
         while let Some(header) = iter.next()? {
-            let unit = self.sections.unit(header.clone())?;
+            let unit = self.sections.unit(header)?;
             let mut entries = unit.entries();
             while let Some((_delta_depth, entry)) = entries.next_dfs()? {
                 if entry.tag() != gimli::DW_TAG_structure_type {
@@ -276,8 +275,7 @@ impl Parser {
                 break;
             }
         }
-        if struct_name.is_some() {
-            let name = struct_name.unwrap();
+        if let Some(name) = &struct_name {
             let size = struct_size.unwrap_or(0);
             match self.struct_dict.entry(name.clone()) {
                 std::collections::hash_map::Entry::Occupied(mut dentry) => {
@@ -285,7 +283,7 @@ impl Parser {
                 }
                 std::collections::hash_map::Entry::Vacant(dentry) => {
                     let meta = DwTypeMeta { offset: entry.offset(), header_idx };
-                    dentry.insert(Struct{name, size, meta, refcnt: 0});
+                    dentry.insert(Struct{name: name.clone(), size, meta, refcnt: 0});
                 }
             };
         }
@@ -308,7 +306,7 @@ impl Parser {
         };
         let mut iter = self.sections.units().skip(meta.header_idx);
         while let Some(header) = iter.next()? {
-            let unit = self.sections.unit(header.clone())?;
+            let unit = self.sections.unit(header)?;
             let mut nested_entries = unit.entries_at_offset(meta.offset)?;
 
             if let Some((_delta_depth, entry)) = nested_entries.next_dfs()? {
@@ -339,13 +337,13 @@ impl Parser {
         let meta = DwTypeMeta { offset, header_idx };
 
         if let Some(header) = iter.next()? {
-            let unit = self.sections.unit(header.clone())?;
+            let unit = self.sections.unit(header)?;
             let mut nested_entries = unit.entries_at_offset(offset)?;
             if let Some(dfs) = nested_entries.next_dfs()? {
                 let type_dfs = dfs.1;
                 let tag = type_dfs.tag();
 
-                println!("    type tag: {}", type_dfs.tag());
+                // println!("    type tag: {}", type_dfs.tag());
 
                 let mut attrs = type_dfs.attrs();
                 match tag {
@@ -429,17 +427,17 @@ impl Parser {
                     gimli::DW_TAG_union_type => {
                         // mb_type.type_tag = MemberType::Union;
                         let size = 0;
-                        while let Some(attr) = attrs.next()? {
-                            println!("    type attr: {}", attr.name());
-                        }
+                        // while let Some(attr) = attrs.next()? {
+                        //    println!("    type attr: {}", attr.name());
+                        // }
                         return Ok(Type::Union( Union{ size, meta } ))
                     }
                     gimli::DW_TAG_array_type => {
                         // mb_type.type_tag = MemberType::Union;
                         let size = 0;
-                        while let Some(attr) = attrs.next()? {
-                            println!("    type attr: {}", attr.name());
-                        }
+                        // while let Some(attr) = attrs.next()? {
+                        //    println!("    type attr: {}", attr.name());
+                        // }
                         return Ok(Type::Array( Array{ size, meta } ))
                     }
                     gimli::DW_TAG_enumeration_type => {
@@ -447,7 +445,7 @@ impl Parser {
                         let size = 0;
                         let mut name = None;
                         while let Some(attr) = attrs.next()? {
-                            println!("    type attr: {}", attr.name());
+                            // println!("    type attr: {}", attr.name());
                             match attr.name() {
                                 gimli::DW_AT_name => {
                                     name = name_attr_to_string(&self.sections.debug_str, &attr)?;
@@ -460,16 +458,16 @@ impl Parser {
                     gimli::DW_TAG_subroutine_type => {
                         // mb_type.type_tag = MemberType::Subroutine;
                         let size = 0;
-                        while let Some(attr) = attrs.next()? {
-                            println!("    type attr: {}", attr.name());
-                        }
+                        // while let Some(attr) = attrs.next()? {
+                        //     println!("    type attr: {}", attr.name());
+                        // }
                         return Ok(Type::Subroutine( Subroutine{ size, meta } ));
                     }
                     gimli::DW_TAG_formal_parameter => {
                         let size = 0;
-                        while let Some(attr) = attrs.next()? {
-                            println!("    type attr: {}", attr.name());
-                        }
+                        // while let Some(attr) = attrs.next()? {
+                        //     println!("    type attr: {}", attr.name());
+                        // }
                         return Ok(Type::Subroutine( Subroutine{ size, meta } ));
                     }
                     _ => { }

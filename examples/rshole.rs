@@ -1,6 +1,8 @@
 extern crate clap;
 extern crate gimli;
 
+use std::fs::File;
+use std::env;
 use::rshole::{Parser, StructMemberIter};
 
 // recursive string builder
@@ -60,11 +62,15 @@ fn get_member_string(parser: &rshole::Parser, mb_type: rshole::Type) -> Result<S
 }
 
 fn main() -> Result<(), gimli::Error> {
-    let path = "/home/jmill/kernel-junk/kernel-dbg/vmlinux".to_string();
+    let args: Vec<String> = env::args().collect();
+    let path = &args[1];
+    //let path = "/home/jmill/kernel-junk/kernel-dbg/vmlinux".to_string();
     //let path = "/home/jmill/install/qemu/build/qemu-system-x86_64".to_string();
 
+    let file = File::open(&path)?;
+
     println!("initializing dwarf parser...");
-    let mut parser = Parser::new(path);
+    let mut parser = Parser::new(file);
 
     println!("loading structs from dwarf info...");
     parser.load_structs().expect("Failed to load structs");
