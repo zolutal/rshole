@@ -11,35 +11,13 @@ use gimli::{Reader, UnitOffset};
 
 type R = gimli::EndianRcSlice<gimli::LittleEndian>;
 
-
-/* API brainstorming
-    class RsHoleTypeStruct
-    class RsHoleTypeUnion
-    class RsHoleTypeArray
-
-   for dw_struct in rshole::Parser(fp).iter_structs():
-        print(dw_struct.name)
-        for dw_member in dw_struct:
-            print(dw_member.type_name, end='')
-
-            if (dw_member.is_ptr)
-                print(' *', end='')
-
-            print(dw_member.name, end='')
-
-            if (dw_member.is_array):
-                print(f'[{dw_member.arr_range}]', end='')
-
-            print(';')
-*/
-
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct DwTypeMeta {
     offset: gimli::UnitOffset,
     header_idx: usize,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Struct {
     pub name: String,
     pub size: u64,
@@ -71,53 +49,69 @@ pub struct StructUnionIter<'a> {
     member_idx: usize
 }
 
+#[derive(Debug)]
 pub struct AnonStruct {
     pub size: u64,
     meta: DwTypeMeta
 }
 
+#[derive(Debug)]
 pub struct Typedef {
     pub name: String,
     pub size: u64,
     meta: DwTypeMeta
 }
 
+#[derive(Debug)]
 pub struct Pointer {
     pub size: u64,
     meta: DwTypeMeta
 }
 
+#[derive(Debug)]
 pub struct Subroutine {
     pub size: u64,
     meta: DwTypeMeta
 }
 
+#[derive(Debug)]
 pub struct Array {
     pub size: u64,
     meta: DwTypeMeta
 }
 
+#[derive(Debug)]
 pub struct Union {
     pub size: u64,
     meta: DwTypeMeta
 }
 
+#[derive(Debug)]
 pub struct Const {
     pub size: u64,
     meta: DwTypeMeta
 }
 
+#[derive(Debug)]
 pub struct Base {
     pub name: String,
     pub size: u64,
     meta: DwTypeMeta
 }
 
+#[derive(Debug)]
 pub struct Enum {
+    pub name: Option<String>,
     pub size: u64,
     meta: DwTypeMeta
 }
 
+#[derive(Debug)]
+pub struct Unknown {
+    meta: DwTypeMeta
+}
+
+#[derive(Debug)]
 pub enum Type {
     Struct(Struct),
     Typedef(Typedef),
@@ -128,7 +122,7 @@ pub enum Type {
     Const(Const),
     Base(Base),
     Enum(Enum),
-    Unknown
+    Unknown(Unknown)
 }
 
 impl StructMember {
@@ -191,7 +185,7 @@ impl StructMemberIter<'_> {
                 gimli::DW_AT_type => {
                     match attr.value() {
                         gimli::AttributeValue::UnitRef(offset) => {
-                            member.mb_type = Some(self.get_type(offset)?);
+                            member.mb_type = Some(self.parser.get_type_meta(self.mb_struct.meta.header_idx, offset)?);
                         },
                         _ => ()
                     }
@@ -209,143 +203,6 @@ impl StructMemberIter<'_> {
         Ok(Some(member))
     }
 
-    // how to handle protoyped well?
-    // need to consider:
-    // return type, is return type pointer?
-    // member type and name
-    // arguments? how??
-    fn get_type(&mut self, offset: UnitOffset) -> Result<Type, gimli::Error> {
-        let mut iter = self.parser.sections.units().skip(self.mb_struct.meta.header_idx);
-        let meta = DwTypeMeta { offset, header_idx: self.mb_struct.meta.header_idx };
-
-        if let Some(header) = iter.next()? {
-            let unit = self.parser.sections.unit(header.clone())?;
-            let mut nested_entries = unit.entries_at_offset(offset)?;
-            if let Some(dfs) = nested_entries.next_dfs()? {
-                let type_dfs = dfs.1;
-                let tag = type_dfs.tag();
-
-                println!("    type tag: {}", type_dfs.tag());
-
-                let mut attrs = type_dfs.attrs();
-                match tag {
-                    gimli::DW_TAG_structure_type => {
-                        let mut size: u64 = 0;
-                        while let Some(attr) = attrs.next()? {
-                            println!("    type attr: {}", attr.name());
-                            match attr.name() {
-                                gimli::DW_AT_name => {
-                                    if let Some(name) = name_attr_to_string(&self.parser.sections.debug_str, &attr)? {
-                                        let entry = self.parser.struct_dict.get(&name);
-                                        match entry {
-                                            Some(entry) => {
-                                                return Ok(Type::Struct( Struct {
-                                                    name: entry.name.to_string(),
-                                                    meta, size,
-                                                    refcnt: 0,
-                                                }));
-                                            }
-                                            _ => {}
-                                        }
-                                    }
-                                }
-                                gimli::DW_AT_byte_size => {
-                                    size = attr.value().udata_value().unwrap_or(0);
-                                }
-                                _ => { }
-                            }
-                        }
-                        // handle anon struct
-                        return Ok(Type::Struct(
-                                    Struct {
-                                        name: String::from("void"),
-                                        meta, size, refcnt: 1
-                                    }
-                                ));
-                    }
-                    gimli::DW_TAG_typedef => {
-                        let mut name: String = String::new();
-                        let mut size: u64 = 0;
-                        while let Some(attr) = attrs.next()? {
-                            println!("    type attr: {}", attr.name());
-                            match attr.name() {
-                                gimli::DW_AT_name => {
-                                    name = name_attr_to_string(&self.parser.sections.debug_str, &attr)?.unwrap_or(String::from("wtf"));
-                                }
-                                gimli::DW_AT_byte_size => {
-                                    size = attr.value().udata_value().unwrap_or(0);
-                                }
-                                _ => { }
-                            }
-                        }
-                        return Ok(Type::Typedef( Typedef { name, meta, size }));
-                    }
-                    gimli::DW_TAG_pointer_type => {
-                        while let Some(attr) = attrs.next()? {
-                            println!("    type attr: {}", attr.name());
-                        }
-                        return Ok(Type::Pointer( Pointer{ meta, size: 8 } ))
-                    }
-                    gimli::DW_TAG_const_type => {
-                        while let Some(attr) = attrs.next()? {
-                            println!("    type attr: {}", attr.name());
-                        }
-                        return Ok(Type::Const( Const{ meta, size: 8 } ))
-                    }
-                    gimli::DW_TAG_base_type => {
-                        let mut name: String = String::new();
-                        let size: u64 = 0;
-                        while let Some(attr) = attrs.next()? {
-                            println!("    type attr: {}", attr.name());
-                            match attr.name() {
-                                gimli::DW_AT_name => {
-                                    name = name_attr_to_string(&self.parser.sections.debug_str, &attr)?.unwrap_or(String::from("void"));
-                                }
-                                _ => { }
-                            }
-                        }
-                        return Ok(Type::Base( Base{ name, size, meta} ))
-                    }
-                    gimli::DW_TAG_union_type => {
-                        // mb_type.type_tag = MemberType::Union;
-                        while let Some(attr) = attrs.next()? {
-                            println!("    type attr: {}", attr.name());
-                        }
-                    }
-                    gimli::DW_TAG_enumeration_type => {
-                        // mb_type.type_tag = MemberType::Enum;
-                        while let Some(attr) = attrs.next()? {
-                            println!("    type attr: {}", attr.name());
-                        }
-                    }
-                    gimli::DW_TAG_subroutine_type => {
-                        // mb_type.type_tag = MemberType::Subroutine;
-                        while let Some(attr) = attrs.next()? {
-                            println!("    type attr: {}", attr.name());
-                            // match attr.name() {
-                            //     gimli::DW_AT_type => {
-                            //         match attr.value() {
-                            //             gimli::AttributeValue::UnitRef(offset) => {
-                            //                 let nested = self.get_type(offset)?;
-                            //                 mb_type.name = nested.name;
-                            //             }
-                            //             _ => {}
-                            //         }
-                            //     }
-                            //     _ => { }
-                            // }
-                            // if mb_type.name.is_none() {
-                            //     mb_type.name = Some("void".to_string());
-                            // }
-                        }
-                    }
-                    _ => { }
-                }
-            }
-        }
-        // FIXME
-        Err(gimli::Error::TypeMismatch)
-    }
 }
 
 pub struct Parser {
@@ -433,6 +290,194 @@ impl Parser {
             };
         }
         Ok(())
+    }
+
+    pub fn get_type(&self, type_inst: Type ) -> Result<Option<Type>, gimli::Error> {
+        //println!("get_type({:?})", type_inst);
+        let meta = match type_inst {
+            Type::Base(t) =>       { t.meta }
+            Type::Array(t) =>      { t.meta }
+            Type::Enum(t) =>       { t.meta }
+            Type::Const(t) =>      { t.meta }
+            Type::Typedef(t) =>    { t.meta }
+            Type::Struct(t) =>     { t.meta }
+            Type::Pointer(t) =>    { t.meta }
+            Type::Union(t) =>      { t.meta }
+            Type::Subroutine(t) => { t.meta }
+            Type::Unknown(t) =>    { t.meta }
+        };
+        let mut iter = self.sections.units().skip(meta.header_idx);
+        while let Some(header) = iter.next()? {
+            let unit = self.sections.unit(header.clone())?;
+            let mut nested_entries = unit.entries_at_offset(meta.offset)?;
+
+            if let Some((_delta_depth, entry)) = nested_entries.next_dfs()? {
+                let mut attrs = entry.attrs();
+                while let Some(attr) = attrs.next()? {
+                    match attr.name() {
+                        gimli::DW_AT_type => {
+                            match attr.value() {
+                                gimli::AttributeValue::UnitRef(offset) => {
+                                    let _type = self.get_type_meta(meta.header_idx, offset)?;
+                                    return Ok(Some(_type));
+                                },
+                                _ => ()
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                return Ok(None);
+            }
+        }
+        // FIXME
+        Err(gimli::Error::TypeMismatch)
+    }
+
+    fn get_type_meta(&self, header_idx: usize, offset: UnitOffset) -> Result<Type, gimli::Error> {
+        let mut iter = self.sections.units().skip(header_idx);
+        let meta = DwTypeMeta { offset, header_idx };
+
+        if let Some(header) = iter.next()? {
+            let unit = self.sections.unit(header.clone())?;
+            let mut nested_entries = unit.entries_at_offset(offset)?;
+            if let Some(dfs) = nested_entries.next_dfs()? {
+                let type_dfs = dfs.1;
+                let tag = type_dfs.tag();
+
+                println!("    type tag: {}", type_dfs.tag());
+
+                let mut attrs = type_dfs.attrs();
+                match tag {
+                    gimli::DW_TAG_structure_type => {
+                        let mut size: u64 = 0;
+                        while let Some(attr) = attrs.next()? {
+                            // println!("    type attr: {}", attr.name());
+                            match attr.name() {
+                                gimli::DW_AT_name => {
+                                    if let Some(name) = name_attr_to_string(&self.sections.debug_str, &attr)? {
+                                        let entry = self.struct_dict.get(&name);
+                                        match entry {
+                                            Some(entry) => {
+                                                return Ok(Type::Struct( Struct {
+                                                    name: entry.name.to_string(),
+                                                    meta, size,
+                                                    refcnt: 0,
+                                                }));
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                }
+                                gimli::DW_AT_byte_size => {
+                                    size = attr.value().udata_value().unwrap_or(0);
+                                }
+                                _ => { }
+                            }
+                        }
+                        // handle anon struct
+                        return Ok(Type::Struct(
+                                    Struct {
+                                        name: String::from("void"),
+                                        meta, size, refcnt: 1
+                                    }
+                                ));
+                    }
+                    gimli::DW_TAG_typedef => {
+                        let mut name: String = String::new();
+                        let mut size: u64 = 0;
+                        while let Some(attr) = attrs.next()? {
+                            // println!("    type attr: {}", attr.name());
+                            match attr.name() {
+                                gimli::DW_AT_name => {
+                                    name = name_attr_to_string(&self.sections.debug_str, &attr)?.unwrap_or(String::from("wtf"));
+                                }
+                                gimli::DW_AT_byte_size => {
+                                    size = attr.value().udata_value().unwrap_or(0);
+                                }
+                                _ => { }
+                            }
+                        }
+                        return Ok(Type::Typedef( Typedef { name, meta, size }));
+                    }
+                    gimli::DW_TAG_pointer_type => {
+                        //while let Some(attr) = attrs.next()? {
+                        //    println!("    type attr: {}", attr.name());
+                        //}
+                        return Ok(Type::Pointer( Pointer{ meta, size: 8 } ));
+                    }
+                    gimli::DW_TAG_const_type => {
+                        // while let Some(attr) = attrs.next()? {
+                        //     println!("    type attr: {}", attr.name());
+                        // }
+                        return Ok(Type::Const( Const{ meta, size: 8 } ));
+                    }
+                    gimli::DW_TAG_base_type => {
+                        let mut name: String = String::new();
+                        let size: u64 = 0;
+                        while let Some(attr) = attrs.next()? {
+                            // println!("    type attr: {}", attr.name());
+                            match attr.name() {
+                                gimli::DW_AT_name => {
+                                    name = name_attr_to_string(&self.sections.debug_str, &attr)?.unwrap_or(String::from("void"));
+                                }
+                                _ => { }
+                            }
+                        }
+                        return Ok(Type::Base( Base{ name, size, meta } ))
+                    }
+                    gimli::DW_TAG_union_type => {
+                        // mb_type.type_tag = MemberType::Union;
+                        let size = 0;
+                        while let Some(attr) = attrs.next()? {
+                            println!("    type attr: {}", attr.name());
+                        }
+                        return Ok(Type::Union( Union{ size, meta } ))
+                    }
+                    gimli::DW_TAG_array_type => {
+                        // mb_type.type_tag = MemberType::Union;
+                        let size = 0;
+                        while let Some(attr) = attrs.next()? {
+                            println!("    type attr: {}", attr.name());
+                        }
+                        return Ok(Type::Array( Array{ size, meta } ))
+                    }
+                    gimli::DW_TAG_enumeration_type => {
+                        // mb_type.type_tag = MemberType::Enum;
+                        let size = 0;
+                        let mut name = None;
+                        while let Some(attr) = attrs.next()? {
+                            println!("    type attr: {}", attr.name());
+                            match attr.name() {
+                                gimli::DW_AT_name => {
+                                    name = name_attr_to_string(&self.sections.debug_str, &attr)?;
+                                }
+                                _ => { }
+                            }
+                        }
+                        return Ok(Type::Enum( Enum{ name, size, meta } ));
+                    }
+                    gimli::DW_TAG_subroutine_type => {
+                        // mb_type.type_tag = MemberType::Subroutine;
+                        let size = 0;
+                        while let Some(attr) = attrs.next()? {
+                            println!("    type attr: {}", attr.name());
+                        }
+                        return Ok(Type::Subroutine( Subroutine{ size, meta } ));
+                    }
+                    gimli::DW_TAG_formal_parameter => {
+                        let size = 0;
+                        while let Some(attr) = attrs.next()? {
+                            println!("    type attr: {}", attr.name());
+                        }
+                        return Ok(Type::Subroutine( Subroutine{ size, meta } ));
+                    }
+                    _ => { }
+                }
+            }
+        }
+        // FIXME
+        Err(gimli::Error::TypeMismatch)
     }
 
 }
