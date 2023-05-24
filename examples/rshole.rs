@@ -37,7 +37,6 @@ fn get_member_string(parser: &rshole::Parser, mb_type: rshole::Type, mb_name: &S
         }
         rshole::Type::Pointer(_) => {
             if let Some(inner_type) = parser.get_type(mb_type)? {
-                //println!("--{:?}--", inner_type);
                 let inner_string = get_member_string(&parser, inner_type, mb_name, level+1)?;
                 //let inner_string = String::new();
                 if level == 0 {
@@ -71,11 +70,6 @@ fn get_member_string(parser: &rshole::Parser, mb_type: rshole::Type, mb_name: &S
         rshole::Type::Array(ref arr_type) => {
             let arr_size = arr_type.size;
 
-            //let mut append_str = String::new();
-            //if level == 0 {
-            //    append_str = mb_name.to_string();
-            //}
-
             if let Some(inner_type) = parser.get_type(mb_type)? {
                 let inner_string = get_member_string(&parser, inner_type, mb_name, level+1)?;
                 if arr_size == 0 {
@@ -101,8 +95,6 @@ fn get_member_string(parser: &rshole::Parser, mb_type: rshole::Type, mb_name: &S
 fn main() -> Result<(), gimli::Error> {
     let args: Vec<String> = env::args().collect();
     let path = &args[1];
-    //let path = "/home/jmill/kernel-junk/kernel-dbg/vmlinux".to_string();
-    //let path = "/home/jmill/install/qemu/build/qemu-system-x86_64".to_string();
 
     let file = File::open(&path)?;
 
@@ -115,9 +107,6 @@ fn main() -> Result<(), gimli::Error> {
 
     println!("found structs:");
     for (_name, dw_struct) in parser.struct_dict.iter() {
-        // if dw_struct.name != "cryptomgr_param" {
-        //     continue;
-        // }
         let mut iter = StructMemberIter::new(&dw_struct, &parser);
 
         println!("struct {} {{", dw_struct.name);
@@ -128,21 +117,6 @@ fn main() -> Result<(), gimli::Error> {
                     let member_string = get_member_string(&parser, mb_type, &mb_name, 0)?;
                     println!("  {};", member_string);
                 }
-                // match &mb_type {
-                //     &rshole::Type::Array(_) => {
-                //         let member_string = get_member_string(&parser, mb_type, mb_name)?;
-                //         if let Some(mb_name) = dw_struct_memb.name {
-                //             println!("size: {}", dw_struct_memb.size);
-                //             println!("  {}{}[];", member_string, mb_name);
-                //         }
-                //     }
-                //     _ => {
-                //         let member_string = get_member_string(&parser, mb_type)?;
-                //         if let Some(mb_name) = dw_struct_memb.name {
-                //             println!("  {}{};", member_string, mb_name);
-                //         }
-                //     }
-                // }
             }
         }
 
