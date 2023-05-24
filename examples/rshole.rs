@@ -1,9 +1,9 @@
 extern crate clap;
 extern crate gimli;
 
+use::rshole::StructMemberIter;
 use std::fs::File;
-use std::env;
-use::rshole::{Parser, StructMemberIter};
+use clap::Parser;
 
 // recursive string builder
 fn get_member_string(parser: &rshole::Parser, mb_type: rshole::Type, mb_name: &String, level: u8) -> Result<String, gimli::Error> {
@@ -97,35 +97,56 @@ fn get_member_string(parser: &rshole::Parser, mb_type: rshole::Type, mb_name: &S
     return Ok(String::new());
 }
 
-fn main() -> Result<(), gimli::Error> {
-    let args: Vec<String> = env::args().collect();
-    let path = &args[1];
+fn print_struct(dw_struct: &rshole::Struct, parser: &rshole::Parser) -> Result<(), gimli::Error> {
+    let mut iter = StructMemberIter::new(&dw_struct, &parser);
 
-    let file = File::open(&path)?;
+    println!("struct {} {{", dw_struct.name);
+    while let Some(dw_struct_memb) = iter.next() {
+        if let Some(mb_type) = dw_struct_memb.mb_type {
+            if let Some(mb_name) = dw_struct_memb.name {
+                let member_string = get_member_string(&parser, mb_type, &mb_name, 0)?;
+                println!("  {};", member_string);
+            }
+        }
+    }
+    println!("}}\n");
+
+    Ok(())
+}
+
+#[derive(clap::Parser, Debug)]
+struct Args {
+    path: String,
+    name: Option<String>
+}
+
+
+fn main() -> Result<(), gimli::Error> {
+    let args = Args::parse();
+    let file = File::open(args.path)?;
 
     println!("initializing dwarf parser...");
-    let mut parser = Parser::new(file);
+    let mut parser = rshole::Parser::new(file);
 
     println!("loading structs from dwarf info...");
     parser.load_structs().expect("Failed to load structs");
 
-
-    println!("found structs:");
-    for (_name, dw_struct) in parser.struct_dict.iter() {
-        let mut iter = StructMemberIter::new(&dw_struct, &parser);
-
-        println!("struct {} {{", dw_struct.name);
-
-        while let Some(dw_struct_memb) = iter.next() {
-            if let Some(mb_type) = dw_struct_memb.mb_type {
-                if let Some(mb_name) = dw_struct_memb.name {
-                    let member_string = get_member_string(&parser, mb_type, &mb_name, 0)?;
-                    println!("  {};", member_string);
+    match args.name {
+        Some(arg_name) => {
+            println!("found struct:");
+            for (struct_name, dw_struct) in parser.struct_dict.iter() {
+                if arg_name.eq(struct_name) {
+                    print_struct(dw_struct, &parser)?;
                 }
             }
         }
-
-        println!("}}\n");
+        _ => {
+            println!("found structs:");
+            for (_name, dw_struct) in parser.struct_dict.iter() {
+                print_struct(dw_struct, &parser)?;
+            }
+        }
     }
+
     Ok(())
 }
