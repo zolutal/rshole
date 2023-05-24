@@ -6,38 +6,50 @@ use std::env;
 use::rshole::{Parser, StructMemberIter};
 
 // recursive string builder
-fn get_member_string(parser: &rshole::Parser, mb_type: rshole::Type) -> Result<String, gimli::Error> {
+fn get_member_string(parser: &rshole::Parser, mb_type: rshole::Type, mb_name: &String, level: u8) -> Result<String, gimli::Error> {
     match mb_type {
         rshole::Type::Struct(struct_type) => {
             let struct_name = struct_type.name;
-            return Ok(format!("{} ", struct_name));
+            if level == 0 {
+                return Ok(format!("struct {} {}", struct_name, mb_name));
+            }
+            return Ok(format!("struct {} ", struct_name));
         }
         rshole::Type::Base(base_type) => {
             let base_name = base_type.name;
+            if level == 0 {
+                return Ok(format!("{} {}", base_name, mb_name));
+            }
             return Ok(format!("{} ", base_name));
         }
         rshole::Type::Typedef(typedef_type) => {
             let typedef_name = typedef_type.name;
+            if level == 0 {
+                return Ok(format!("{} {}", typedef_name, mb_name));
+            }
             return Ok(format!("{} ", typedef_name));
         }
         rshole::Type::Const(_) => {
             if let Some(inner_type) = parser.get_type(mb_type)? {
-                let inner_string = get_member_string(&parser, inner_type)?;
+                let inner_string = get_member_string(&parser, inner_type, mb_name, level+1)?;
                 return Ok(format!("const {}", inner_string));
             }
         }
         rshole::Type::Pointer(_) => {
             if let Some(inner_type) = parser.get_type(mb_type)? {
                 //println!("--{:?}--", inner_type);
-                let inner_string = get_member_string(&parser, inner_type)?;
+                let inner_string = get_member_string(&parser, inner_type, mb_name, level+1)?;
                 //let inner_string = String::new();
+                if level == 0 {
+                    return Ok(format!("{}*{}", inner_string, mb_name));
+                }
                 return Ok(format!("{}*", inner_string));
             }
-            return Ok(String::from("void *"));
+            return Ok(format!("void * {}", mb_name));
         }
         rshole::Type::Enum(ref enum_type) => {
             if let Some(enum_name) = &enum_type.name {
-                return Ok(format!("enum {} ", enum_name));
+                return Ok(format!("enum {}", enum_name));
             }
             // TODO: if not named need to iterate to get enumerators
             // 0x00000034:     DW_TAG_enumeration_type
@@ -50,13 +62,38 @@ fn get_member_string(parser: &rshole::Parser, mb_type: rshole::Type) -> Result<S
             //         DW_AT_const_value	(4)
 
             if let Some(inner_type) = parser.get_type(mb_type)? {
-                let inner_string = get_member_string(&parser, inner_type)?;
-                return Ok(format!("enum {}", inner_string));
+                let inner_string = get_member_string(&parser, inner_type, mb_name, level+1)?;
+                return Ok(format!("enum {} {}", inner_string, mb_name));
             }
             // should never be reached
             return Ok(String::from("enum anon "))
         }
-        _ => {}
+        rshole::Type::Array(ref arr_type) => {
+            let arr_size = arr_type.size;
+
+            //let mut append_str = String::new();
+            //if level == 0 {
+            //    append_str = mb_name.to_string();
+            //}
+
+            if let Some(inner_type) = parser.get_type(mb_type)? {
+                let inner_string = get_member_string(&parser, inner_type, mb_name, level+1)?;
+                if arr_size == 0 {
+                    return Ok(format!("{}{}[]", inner_string, mb_name));
+                }
+                return Ok(format!("{}{}[{}]", inner_string, mb_name, arr_size));
+            }
+            return Ok(format!("{}[?]", mb_name));
+        }
+        rshole::Type::Subroutine(_) => {
+            if level == 0 {
+                return Ok(format!("subroutine {}", mb_name));
+            }
+                return Ok(format!("subroutine "));
+        }
+        _ => {
+            //println!("Unhandled: {:?}", mb_type)
+        }
     }
     return Ok(String::new());
 }
@@ -87,10 +124,25 @@ fn main() -> Result<(), gimli::Error> {
 
         while let Some(dw_struct_memb) = iter.next() {
             if let Some(mb_type) = dw_struct_memb.mb_type {
-                let member_string = get_member_string(&parser, mb_type)?;
                 if let Some(mb_name) = dw_struct_memb.name {
-                    println!("  {}{}", member_string, mb_name);
+                    let member_string = get_member_string(&parser, mb_type, &mb_name, 0)?;
+                    println!("  {};", member_string);
                 }
+                // match &mb_type {
+                //     &rshole::Type::Array(_) => {
+                //         let member_string = get_member_string(&parser, mb_type, mb_name)?;
+                //         if let Some(mb_name) = dw_struct_memb.name {
+                //             println!("size: {}", dw_struct_memb.size);
+                //             println!("  {}{}[];", member_string, mb_name);
+                //         }
+                //     }
+                //     _ => {
+                //         let member_string = get_member_string(&parser, mb_type)?;
+                //         if let Some(mb_name) = dw_struct_memb.name {
+                //             println!("  {}{};", member_string, mb_name);
+                //         }
+                //     }
+                // }
             }
         }
 

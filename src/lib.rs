@@ -125,6 +125,24 @@ pub enum Type {
     Unknown(Unknown)
 }
 
+impl Type {
+    fn get_meta(self) -> DwTypeMeta {
+        let meta = match self {
+            Type::Base(t) =>       { t.meta }
+            Type::Array(t) =>      { t.meta }
+            Type::Enum(t) =>       { t.meta }
+            Type::Const(t) =>      { t.meta }
+            Type::Typedef(t) =>    { t.meta }
+            Type::Struct(t) =>     { t.meta }
+            Type::Pointer(t) =>    { t.meta }
+            Type::Union(t) =>      { t.meta }
+            Type::Subroutine(t) => { t.meta }
+            Type::Unknown(t) =>    { t.meta }
+        };
+        meta
+    }
+}
+
 impl StructMember {
     fn new() -> StructMember {
         return StructMember {
@@ -292,18 +310,7 @@ impl Parser {
 
     pub fn get_type(&self, type_inst: Type ) -> Result<Option<Type>, gimli::Error> {
         //println!("get_type({:?})", type_inst);
-        let meta = match type_inst {
-            Type::Base(t) =>       { t.meta }
-            Type::Array(t) =>      { t.meta }
-            Type::Enum(t) =>       { t.meta }
-            Type::Const(t) =>      { t.meta }
-            Type::Typedef(t) =>    { t.meta }
-            Type::Struct(t) =>     { t.meta }
-            Type::Pointer(t) =>    { t.meta }
-            Type::Union(t) =>      { t.meta }
-            Type::Subroutine(t) => { t.meta }
-            Type::Unknown(t) =>    { t.meta }
-        };
+        let meta = type_inst.get_meta();
         let mut iter = self.sections.units().skip(meta.header_idx);
         while let Some(header) = iter.next()? {
             let unit = self.sections.unit(header)?;
@@ -330,6 +337,41 @@ impl Parser {
         }
         // FIXME
         Err(gimli::Error::TypeMismatch)
+    }
+
+    fn get_array_bounds(&self, header_idx: usize, arr_offset: UnitOffset) -> Result<u64, gimli::Error> {
+        let mut iter = self.sections.units().skip(header_idx);
+
+        if let Some(header) = iter.next()? {
+            let unit = self.sections.unit(header)?;
+            let mut nested_entries = unit.entries_at_offset(arr_offset)?;
+            let _ = nested_entries.next_dfs(); // skip one
+            if let Some(dfs) = nested_entries.next_dfs()? {
+                let type_dfs = dfs.1;
+                let tag = type_dfs.tag();
+
+                // println!("    type tag: {}", type_dfs.tag());
+
+                let mut attrs = type_dfs.attrs();
+                match tag {
+                    gimli::DW_TAG_subrange_type => {
+                        while let Some(attr) = attrs.next()? {
+                            match attr.name() {
+                                gimli::DW_AT_upper_bound => {
+                                    return Ok(attr.value().udata_value().unwrap_or(0) + 1)
+                                }
+                                _ => {}
+                            }
+                           // println!("    type attr: {}", attr.name());
+                        }
+                    }
+                    _ => {
+                        return Err(gimli::Error::TypeMismatch) // FIXME
+                    }
+                }
+            }
+        }
+        Ok(0)
     }
 
     fn get_type_meta(&self, header_idx: usize, offset: UnitOffset) -> Result<Type, gimli::Error> {
@@ -433,12 +475,14 @@ impl Parser {
                         return Ok(Type::Union( Union{ size, meta } ))
                     }
                     gimli::DW_TAG_array_type => {
-                        // mb_type.type_tag = MemberType::Union;
-                        let size = 0;
-                        // while let Some(attr) = attrs.next()? {
-                        //    println!("    type attr: {}", attr.name());
-                        // }
-                        return Ok(Type::Array( Array{ size, meta } ))
+                        // Array types are immediately followed by a DW_TAG_subrange_type
+                        // which describes the array size in the upper_bound
+                        //while let Some(attr) = attrs.next()? {
+                        //   println!("    type attr: {}", attr.name());
+                        //}
+                        let bounds = self.get_array_bounds(header_idx, offset)?;
+                        // println!("bounds: {}", bounds);
+                        return Ok(Type::Array( Array{ size: bounds, meta } ))
                     }
                     gimli::DW_TAG_enumeration_type => {
                         // mb_type.type_tag = MemberType::Enum;
@@ -458,19 +502,23 @@ impl Parser {
                     gimli::DW_TAG_subroutine_type => {
                         // mb_type.type_tag = MemberType::Subroutine;
                         let size = 0;
-                        // while let Some(attr) = attrs.next()? {
-                        //     println!("    type attr: {}", attr.name());
-                        // }
+                        //while let Some(attr) = attrs.next()? {
+                        //    println!("    type attr: {}", attr.name());
+                        //}
                         return Ok(Type::Subroutine( Subroutine{ size, meta } ));
                     }
                     gimli::DW_TAG_formal_parameter => {
                         let size = 0;
-                        // while let Some(attr) = attrs.next()? {
-                        //     println!("    type attr: {}", attr.name());
-                        // }
+                        //while let Some(attr) = attrs.next()? {
+                        //    println!("    type attr: {}", attr.name());
+                        //}
                         return Ok(Type::Subroutine( Subroutine{ size, meta } ));
                     }
-                    _ => { }
+                    _ => {
+                        while let Some(attr) = attrs.next()? {
+                            println!("    type attr: {}", attr.name());
+                        }
+                    }
                 }
             }
         }
