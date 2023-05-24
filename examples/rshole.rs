@@ -38,7 +38,6 @@ fn get_member_string(parser: &rshole::Parser, mb_type: rshole::Type, mb_name: &S
         rshole::Type::Pointer(_) => {
             if let Some(inner_type) = parser.get_type(mb_type)? {
                 let inner_string = get_member_string(&parser, inner_type, mb_name, level+1)?;
-                //let inner_string = String::new();
                 if level == 0 {
                     return Ok(format!("{}*{}", inner_string, mb_name));
                 }
@@ -84,6 +83,12 @@ fn get_member_string(parser: &rshole::Parser, mb_type: rshole::Type, mb_name: &S
                 return Ok(format!("subroutine {}", mb_name));
             }
                 return Ok(format!("subroutine "));
+        }
+        rshole::Type::Union(_) => {
+            if level == 0 {
+                return Ok(format!("union {}", mb_name));
+            }
+                return Ok(format!("union "));
         }
         _ => {
             //println!("Unhandled: {:?}", mb_type)
